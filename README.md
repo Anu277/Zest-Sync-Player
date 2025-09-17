@@ -6,7 +6,7 @@
 
 **AI-Powered Video Player with Automatic Subtitle Generation & Translation**
 
-![Zest Sync Player Demo](https://via.placeholder.com/800x400/1a1a1a/ffffff?text=Zest+Sync+Player+Demo)
+![Zest Sync Player Demo](https://raw.githubusercontent.com/anu277/zest-sync-player/icon.ico)
 
 ## 🎯 Features
 
