@@ -21,13 +21,37 @@
 ## 🚀 Quick Start
 
 ### For Users
-1. **Download** the installer: `ZestSyncPlayerSetup.exe`
+1. **Download** the installer from [GitHub Releases](https://github.com/anu277/zest-sync-player/releases/latest)
 2. **Install** and run the application
 3. **First Launch**: Select languages to download (one-time setup)
-4. **Import Video**: Click the '+' button to add media files
+4. **Import Video**: Click the **'+'** button to add media files
 5. **Generate Subtitles**: Select language and click "Generate"
 
 ### For Developers
+
+> **⚠️ Important**: Due to GitHub file size limits, you'll need to manually add these required files:
+> 
+> **FFmpeg** (Download from [ffmpeg.org](https://ffmpeg.org/download.html)):
+> ```
+> ffmpeg/
+> ├── bin/
+> │   ├── ffmpeg.exe
+> │   ├── ffplay.exe
+> │   └── ffprobe.exe
+> ├── ffmpeg.exe
+> └── ffprobe.exe
+> ```
+> 
+> **Faster-Whisper Base Model** (Download from [Hugging Face](https://huggingface.co/guillaumekln/faster-whisper-base)):
+> ```
+> Whisper/
+> ├── config.json
+> ├── main
+> ├── model.bin
+> ├── tokenizer.json
+> └── vocabulary.txt
+> ```
+
 ```bash
 git clone https://github.com/anu277/zest-sync-player.git
 cd zest-sync-player
@@ -80,7 +104,7 @@ python main.py
 
 - **Installation**: `C:\Program Files\Zest Sync Player\`
 - **Logs**: `%USERPROFILE%\.zestsync_logs\`
-- **Models**: `%USERPROFILE%\.cache\huggingface\hub\`
+- **Models**: `C:\Program Files\Zest Sync Player\_internal\models\hub\`
 - **Subtitles**: Saved next to video files as `.srt`
 
 ## 🛠️ Troubleshooting

@@ -687,9 +687,16 @@ class ZestSyncPlayer(QMainWindow):
         If running as a PyInstaller bundle, it points to the bundled 'models' directory.
         Otherwise, it uses the default Hugging Face cache.
         """
+        # if getattr(sys, 'frozen', False):
+        #     # Running as EXE
+        #     cache_dir = os.path.join(sys._MEIPASS, 'models')
+        # else:
+        #     # Running as script
+        #     cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'huggingface', 'hub')
+        
         if getattr(sys, 'frozen', False):
-            # Running as EXE
-            cache_dir = os.path.join(sys._MEIPASS, 'models')
+            # Running as EXE - use user directory instead of Program Files
+            cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'zestsync', 'models')
         else:
             # Running as script
             cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'huggingface', 'hub')
@@ -701,7 +708,13 @@ class ZestSyncPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
         self._set_model_cache_path()
-        self.setWindowIcon(QIcon("icon.ico"))
+        if getattr(sys, 'frozen', False):
+            # Running as EXE - use bundled resource
+            icon_path = os.path.join(sys._MEIPASS, 'icon.ico')
+        else:
+            # Running as script
+            icon_path = 'icon.ico'
+        self.setWindowIcon(QIcon(icon_path))
         self.setWindowTitle("Zest Sync")
         self.setMinimumSize(1280, 768)
         
