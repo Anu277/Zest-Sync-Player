@@ -43,6 +43,12 @@ cache/
 temp/
 logs/
 
+# Large files (>100MB GitHub limit)
+Whisper/model.bin
+libmpv-2.dll
+*.dll
+ffmpeg/bin/*.exe
+
 # Build artifacts
 *.exe
 *.msi
