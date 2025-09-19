@@ -40,6 +40,16 @@ def setup_logging():
 log_file_path = setup_logging()
 logging.info(f"Zest Sync Player started. Log file: {log_file_path}")
 
+# Log system information
+try:
+    from system_info import log_system_info
+    log_system_info()
+except Exception as e:
+    logging.warning(f"Could not gather system info: {e}")
+
+# Import settings manager
+from settings_manager import SettingsManager
+
 # Make sure these are installed:
 # pip install mpv-python PyQt6 PyQt6-Qtawesome faster-whisper onnxruntime easyNMT nltk
 # You also need to run this once to download the nltk data:
@@ -80,11 +90,9 @@ try:
             os.environ["PATH"] = onnx_path + os.pathsep + os.environ["PATH"]
     except Exception as onnx_error:
         logging.warning(f"ONNX runtime not available: {onnx_error}")
-        print(f"ONNX runtime not available: {onnx_error}")
         
 except Exception as e:
     logging.error(f"Failed to set environment path: {e}")
-    print(f"Failed to set environment path: {e}")
 # --- END OF CRITICAL PATH CONFIGURATION ---
 
 # Import MPV after PATH configuration
@@ -92,8 +100,7 @@ try:
     import mpv
 except Exception as e:
     logging.error(f"Failed to import MPV: {e}")
-    print(f"Failed to import MPV: {e}")
-    print(f"Current PATH: {os.environ.get('PATH', 'Not set')}")
+    logging.error(f"Current PATH: {os.environ.get('PATH', 'Not set')}")
     raise
 
 from PyQt6.QtWidgets import (
@@ -130,11 +137,66 @@ import qtawesome as qta
 # Defer heavy imports to speed up startup
 def lazy_import_huggingface():
     try:
+        import os
+        # Disable progress bars that can hang in background threads
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         from huggingface_hub import snapshot_download
         return snapshot_download
     except ImportError as e:
         logging.error(f"Failed to import huggingface_hub: {e}")
         return None
+
+class IntroWindow(QWidget):
+    finished = pyqtSignal()
+    
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowFlag(Qt.WindowType.Tool, False)  # Show in taskbar
+        self.setFixedSize(1280, 720)
+        self.center_on_screen()
+        if getattr(sys, 'frozen', False):
+            # Running as EXE - use bundled resource
+            icon_path = os.path.join(sys._MEIPASS, 'icon.ico')
+        else:
+            # Running as script
+            icon_path = 'icon.ico'
+        self.setWindowIcon(QIcon(icon_path))
+        
+        # Get intro video path
+        if getattr(sys, 'frozen', False):
+            intro_path = os.path.join(sys._MEIPASS, 'assets', 'intro.mp4')
+        else:
+            intro_path = os.path.join('assets', 'intro.mp4')
+            
+        # Create MPV player
+        self.mpv_player = mpv.MPV(wid=str(int(self.winId())), hr_seek='yes')
+        
+        # Auto-close timer
+        self.close_timer = QTimer()
+        self.close_timer.setSingleShot(True)
+        self.close_timer.timeout.connect(self.close_intro)
+        
+        # Play intro video
+        if os.path.exists(intro_path):
+            self.mpv_player.play(intro_path)
+            self.close_timer.start(5000)  # 4 seconds
+        else:
+            self.close_timer.start(100)  # Close immediately if no intro
+    
+    def center_on_screen(self):
+        screen = QApplication.primaryScreen().geometry()
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
+    
+    def close_intro(self):
+        self.mpv_player.terminate()
+        self.finished.emit()
+        self.close()
+
+# Import tutorial window
+from tutorial_window import TutorialWindow
 
 # Language Download Dialog
 class LanguageDownloadDialog(QDialog):
@@ -399,29 +461,37 @@ class ZestSyncPlayer(QMainWindow):
         if video_duration_seconds <= 0:
             return 0
         
-        # Base transcription time: 50s for 10.40 min (624 seconds)
-        base_ratio = 85 / (10.14 * 60)
+        # Get current accuracy mode
+        accuracy_mode = self.settings_manager.get_accuracy_mode()
         
-        # Translation time factors based on 641-second test file
-        translation_factors = {
-            "en": 85,    # Base transcription time
-            "nl": 77,    # Dutch
-            "fr": 72,    # French
-            "de": 80,    # German
-            "it": 120,   # Italian
-            "jap": 110,  # Japanese
-            "ru": 108,   # Russian
-            "es": 100,   # Spanish
-            "sv": 106,   # Swedish
-            "ur": 62,    # Urdu
-            "hi": 74,    # Hindi
-            "zh": 240,   # Chinese
-            "ar": 195,   # Arabic
-            "uk": 40     # Ukrainian
-        }
+        # Base transcription time factors (seconds of processing per 10-minute video)
+        if lang_code == "en":  # English transcription
+            if accuracy_mode == "slow":
+                base_factor = 600  # 10 minutes for 25-minute video (slow/accurate)
+            else:
+                base_factor = 85   # 1.4 minutes for 10-minute video (fast)
+        else:
+            # Translation time factors (not affected by accuracy mode)
+            translation_factors = {
+                "nl": 77,    # Dutch
+                "fr": 72,    # French
+                "de": 80,    # German
+                "it": 120,   # Italian
+                "jap": 110,  # Japanese
+                "ru": 108,   # Russian
+                "es": 100,   # Spanish
+                "sv": 106,   # Swedish
+                "ur": 62,    # Urdu
+                "hi": 74,    # Hindi
+                "zh": 240,   # Chinese
+                "ar": 195,   # Arabic
+                "uk": 40     # Ukrainian
+            }
+            base_factor = translation_factors.get(lang_code, 85)
         
-        factor_seconds = translation_factors.get(lang_code, 85)
-        ratio = factor_seconds / 614  # 641 seconds test file
+        # Calculate ratio based on test video length
+        test_video_length = 1500 if lang_code == "en" and accuracy_mode == "slow" else 614
+        ratio = base_factor / test_video_length
         estimated_time = video_duration_seconds * ratio
         return estimated_time
     
@@ -434,7 +504,6 @@ class ZestSyncPlayer(QMainWindow):
                 self._show_toast("Subtitle file loaded successfully")
             except Exception as e:
                 logging.error(f"Error loading manual subtitle file: {e}")
-                print(f"Error loading manual subtitle file: {e}")
                 self._show_toast("Error loading subtitle file")
 
     def _delete_selected_media(self):
@@ -682,28 +751,15 @@ class ZestSyncPlayer(QMainWindow):
         self.sidebar_idle_timer.stop()
 
     def _set_model_cache_path(self):
-        """
-        Sets the cache directory for translation models.
-        If running as a PyInstaller bundle, it points to the bundled 'models' directory.
-        Otherwise, it uses the default Hugging Face cache.
-        """
-        # if getattr(sys, 'frozen', False):
-        #     # Running as EXE
-        #     cache_dir = os.path.join(sys._MEIPASS, 'models')
-        # else:
-        #     # Running as script
-        #     cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'huggingface', 'hub')
-        
-        if getattr(sys, 'frozen', False):
-            # Running as EXE - use user directory instead of Program Files
-            cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'zestsync', 'models')
-        else:
-            # Running as script
-            cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'huggingface', 'hub')
+        # Use AppData Local for permanent solution - no admin rights needed
+        cache_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'Zest Sync', 'cache', 'models')
+        os.makedirs(cache_dir, exist_ok=True)
         
         os.environ['HF_HOME'] = cache_dir
+        os.environ['HF_HUB_DISABLE_SYMLINKS'] = '1'
+        os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
         logging.info(f"Using model cache directory: {cache_dir}")
-        print(f"Using model cache directory: {cache_dir}")
+
 
     def __init__(self):
         super().__init__()
@@ -718,13 +774,12 @@ class ZestSyncPlayer(QMainWindow):
         self.setWindowTitle("Zest Sync")
         self.setMinimumSize(1280, 768)
         
-        # Show window first, then check first run
-        self.showMaximized()
-        
         # Check if this is first run (after window is shown)
         self.first_run_file = os.path.join(os.path.expanduser("~"), ".zestsync_first_run")
-        if not os.path.exists(self.first_run_file):
-            QTimer.singleShot(500, self.show_language_download_dialog)  # Delay dialog
+        self.is_first_run = not os.path.exists(self.first_run_file)
+        
+        # Initialize settings manager
+        self.settings_manager = SettingsManager()
         
         # Initialize last used path for imports
         self.settings_file = os.path.join(os.path.expanduser("~"), ".zestsync_settings")
@@ -749,6 +804,7 @@ class ZestSyncPlayer(QMainWindow):
         # NEW: Background thread executors
         self.subtitle_executor = ThreadPoolExecutor(max_workers=1)
         self.download_executor = ThreadPoolExecutor(max_workers=1)
+        self.translation_executor = ThreadPoolExecutor(max_workers=1)  # Separate thread for translation
         self.generation_future = None
         self.generation_progress_timer = QTimer(self)
         self.generation_progress_timer.setInterval(500) # Update every 500ms
@@ -767,7 +823,7 @@ class ZestSyncPlayer(QMainWindow):
         # Timer to update UI during downloads
         self.ui_update_timer = QTimer(self)
         self.ui_update_timer.timeout.connect(self._update_language_list_ui)
-        self.ui_update_timer.setInterval(2000)  # Update every 2 seconds
+        self.ui_update_timer.setInterval(5000)  # Update every 5 seconds
 
         # --- TIMERS ---
         self.mouse_idle_timer = QTimer(self)
@@ -844,7 +900,7 @@ class ZestSyncPlayer(QMainWindow):
         self.volume_indicator = QLabel("Volume: 75%")
         self.volume_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.volume_indicator.setStyleSheet(
-            "background-color: rgba(30, 30, 30, 0.8); color: #f0f0f0; border-radius: 8px; padding: 15px 25px; font-size: 16px; font-weight: bold;"
+            "background-color: transparent; color: white; border: none; padding: 15px 25px; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);"
         )
         self.volume_indicator.setVisible(False)
 
@@ -993,6 +1049,13 @@ class ZestSyncPlayer(QMainWindow):
         # Delay initial model status check
         QTimer.singleShot(200, self._update_language_list_ui)
     
+    def show_tutorial_window(self):
+        """Show the tutorial window on first run"""
+        tutorial = TutorialWindow(self)
+        tutorial.center_on_screen()
+        tutorial.finished.connect(lambda: QTimer.singleShot(500, self.show_language_download_dialog))
+        tutorial.show()
+    
     def show_language_download_dialog(self):
         """Show the language download dialog on first run"""
         dialog = LanguageDownloadDialog(self)
@@ -1009,7 +1072,6 @@ class ZestSyncPlayer(QMainWindow):
                 f.write("first_run_complete")
         except Exception as e:
             logging.error(f"Could not create first run file: {e}")
-            print(f"Could not create first run file: {e}")
     
     def start_initial_downloads(self, languages):
         """Start downloading selected languages in background"""
@@ -1019,13 +1081,13 @@ class ZestSyncPlayer(QMainWindow):
         # Show toast notification
         lang_count = len([l for l in languages if l != "English"])
         if lang_count > 0:
-            print(f"Starting download of {lang_count} language models...")
+            logging.info(f"Starting download of {lang_count} language models...")
         
         # Start downloads for non-English languages
         for language in languages:
             if language != "English":  # English doesn't need download
                 lang_code = self._get_language_code(language)
-                print(f"Starting download for {language} ({lang_code})")
+                logging.info(f"Starting download for {language} ({lang_code})")
                 future = self.download_executor.submit(self._download_model_in_background, lang_code)
 
 
@@ -1164,30 +1226,65 @@ class ZestSyncPlayer(QMainWindow):
             "nl": "1.43GB", "sv": "1.31GB", "uk": "585MB", "ur": "870MB"
         }
         
-        # Check Hugging Face cache for individual models
-        # hf_cache = os.path.join(Path.home(), ".cache", "huggingface", "hub")
-        hf_cache = os.path.join(os.environ.get('HF_HOME', os.path.join(Path.home(), '.cache', 'huggingface')), 'hub')
-
-
+        # Check Hugging Face cache for individual models - use same path as download
+        hf_cache = os.path.join(os.environ.get('HF_HOME'), 'hub')
+        logging.info(f"🔍 CACHE PATH: {hf_cache}")
+        
+        downloaded_models = []
+        
         for lang, code in self.languages_list.items():
+            # English doesn't need a translation model - it's always available
+            if lang == "English":
+                status[lang] = {"code": code, "status": "downloaded"}
+                downloaded_models.append(f"{lang} ({code})")
+                logging.info(f"🔍 ENGLISH: Always available ({code})")
+                continue
+            
             is_downloading = self.download_status.get(lang, {}).get("status") == "downloading"
             
             # Check if model exists in Hugging Face cache
             model_name = f"models--Helsinki-NLP--opus-mt-en-{code}"
             model_path = os.path.join(hf_cache, model_name)
+            
+            # Check both snapshots and blobs folders (Windows symlink workaround)
+            snapshots_path = os.path.join(model_path, "snapshots")
+            blobs_path = os.path.join(hf_cache, "blobs")
+            
+            # Simple check: if model directory exists, it's downloaded
             is_downloaded = os.path.exists(model_path) and os.path.isdir(model_path)
             
-            # English doesn't need a translation model
-            if lang == "English":
-                is_downloaded = True
+            # Additional verification: check if it has actual content
+            if is_downloaded:
+                try:
+                    # Check snapshots folder
+                    snapshots_path = os.path.join(model_path, "snapshots")
+                    if os.path.exists(snapshots_path):
+                        snapshot_dirs = [d for d in os.listdir(snapshots_path) if os.path.isdir(os.path.join(snapshots_path, d))]
+                        if snapshot_dirs:
+                            is_downloaded = True
+                    # Check blobs folder as fallback
+                    elif os.path.exists(os.path.join(model_path, "blobs")):
+                        is_downloaded = True
+                    else:
+                        is_downloaded = False
+                except:
+                    # If we can't check contents, assume it's downloaded if directory exists
+                    is_downloaded = True
 
             if is_downloading:
                 status[lang] = {"code": code, "status": "downloading", "size": model_sizes.get(code, "Unknown")}
+                logging.info(f"🔍 DOWNLOADING: {lang} ({code})")
             elif is_downloaded:
                 status[lang] = {"code": code, "status": "downloaded"}
+                downloaded_models.append(f"{lang} ({code})")
+                logging.info(f"🔍 FOUND MODEL: {lang} at {model_path}")
             else:
                 status[lang] = {"code": code, "status": "not_downloaded", "size": model_sizes.get(code, "Unknown")}
-                
+                logging.info(f"🔍 NOT FOUND: {lang} ({code}) - {model_path}")
+        
+        logging.info(f"🔍 DOWNLOADED MODELS: {', '.join(downloaded_models) if downloaded_models else 'None found'}")
+        logging.info(f"🔍 TOTAL STATUS: Downloaded={len([s for s in status.values() if s['status'] == 'downloaded'])}, Downloading={len([s for s in status.values() if s.get('status') == 'downloading'])}, Not Downloaded={len([s for s in status.values() if s['status'] == 'not_downloaded'])}")
+        
         return status
 
     def _update_language_list_ui(self):
@@ -1258,10 +1355,14 @@ class ZestSyncPlayer(QMainWindow):
         size = model_sizes.get(lang_code, "Unknown")
         with self.download_lock:
             self.download_status[lang_name] = {"code": lang_code, "status": "downloading", "size": size}
-        print(f"DEBUG: Updated download status for {lang_name}: downloading")
+        logging.info(f"Updated download status for {lang_name}: downloading")
         self._update_language_list_ui()
         self.ui_update_timer.start()  # Start periodic UI updates
-        self._show_toast(f"Downloading {lang_name} model ({size})...")
+        self._show_toast(f"📥 Downloading {lang_name} model ({size})...")
+        # Update button state during download for 10 seconds
+        QTimer.singleShot(1000, self._update_language_list_ui)
+        QTimer.singleShot(5000, self._update_language_list_ui)
+        QTimer.singleShot(10000, self._update_language_list_ui)
 
     @pyqtSlot(str, str)
     def _handle_model_download_finished(self, lang_code, result):
@@ -1272,7 +1373,7 @@ class ZestSyncPlayer(QMainWindow):
             else:
                 if lang_name in self.download_status:
                     del self.download_status[lang_name]
-        print(f"DEBUG: Updated download status for {lang_name}: {result}")
+        logging.info(f"Updated download status for {lang_name}: {result}")
         
         # Check if all downloads are complete
         downloading_count = sum(1 for status in self.download_status.values() if status.get("status") == "downloading")
@@ -1282,40 +1383,36 @@ class ZestSyncPlayer(QMainWindow):
         self._update_language_list_ui()
         if result == "success":
             self._show_toast(f"✅ {lang_name} model downloaded successfully!")
-            # Auto-start subtitle generation if this language is currently selected
-            current_language = self.language_selector_combo.currentText().split(' (')[0]
-            if current_language == lang_name and self.current_media_index != -1:
-                QTimer.singleShot(1000, self._start_subtitle_generation)
+            # Force UI refresh after 3 seconds with 10 second update cycle
+            QTimer.singleShot(3000, self._update_language_list_ui)
+            QTimer.singleShot(10000, self._update_language_list_ui)
+            # Note: Auto-start disabled to prevent infinite loops
+            # User can manually click Generate button after download completes
         else:
             self._show_toast(f"❌ Download failed for {lang_name}. You can retry later.")
 
     def _download_model_in_background(self, lang_code):
-        import sys
-        print(f"THREAD LOG: Download method called for {lang_code}")
+        logging.info(f"Download method called for {lang_code}")
         logging.info(f"Starting download for language: {lang_code}")
-        sys.stdout.flush()
         try:
             # Test network connectivity first
             import urllib.request
             try:
                 urllib.request.urlopen('https://huggingface.co', timeout=10)
-                print(f"THREAD LOG: Network connectivity confirmed")
                 logging.info("Network connectivity confirmed")
             except Exception as net_error:
-                print(f"THREAD LOG: ❌ Network connectivity failed: {net_error}")
                 logging.error(f"Network connectivity failed: {net_error}")
                 raise Exception(f"No internet connection: {net_error}")
             
-            print(f"THREAD LOG: Setting environment variables...")
-            sys.stdout.flush()
+            logging.info("Setting environment variables...")
             import os
             os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+            os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
+            os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"  # Disable progress bars that can hang
             
-            print(f"THREAD LOG: Emitting download started signal...")
-            sys.stdout.flush()
+            logging.info("Emitting download started signal...")
             self.model_download_started.emit(lang_code)
-            print(f"THREAD LOG: Starting model download for {lang_code}...")
-            sys.stdout.flush()
+            logging.info(f"Starting model download for {lang_code}...")
             
             # Use huggingface_hub to download the specific model
             snapshot_download = lazy_import_huggingface()
@@ -1325,33 +1422,60 @@ class ZestSyncPlayer(QMainWindow):
             logging.info(f"Attempting to download model: {model_id}")
             
             try:
-                path = snapshot_download(repo_id=model_id)
-                print(f"THREAD LOG: ✅ Model downloaded to: {path}")
+                # Use explicit cache directory to ensure consistency
+                cache_dir = os.path.join(os.environ.get('HF_HOME'), 'hub')
+                logging.info(f"Using cache directory: {cache_dir}")
+                
+                # Add progress logging
+                import time
+                start_time = time.time()
+                logging.info(f"Download started at {time.strftime('%H:%M:%S')}")
+                
+                # Force no symlinks by using local_files_only after first download attempt
+                try:
+                    path = snapshot_download(
+                        repo_id=model_id, 
+                        cache_dir=cache_dir, 
+                        local_files_only=False,
+                        resume_download=True,  # Resume if interrupted
+                        force_download=False   # Don't re-download if exists
+                    )
+                except OSError as symlink_error:
+                    if "privilege" in str(symlink_error).lower():
+                        logging.warning(f"Symlink error, retrying with local_files_only: {symlink_error}")
+                        # Try to use already downloaded files
+                        path = snapshot_download(repo_id=model_id, cache_dir=cache_dir, local_files_only=True)
+                    else:
+                        raise symlink_error
+                
+                elapsed_time = time.time() - start_time
+                logging.info(f"Download completed in {elapsed_time:.1f} seconds")
+                logging.info(f"Model downloaded to: {path}")
+                
             except Exception as download_error:
-                print(f"THREAD LOG: Download error (checking cache): {download_error}")
+                logging.warning(f"Download error (checking cache): {download_error}")
                 # Check if model exists in cache anyway
-                cache_path = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub", f"models--Helsinki-NLP--opus-mt-en-{lang_code}")
+                hf_cache = os.path.join(os.environ.get('HF_HOME', os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'Zest Sync', 'cache', 'models')), 'hub')
+                cache_path = os.path.join(hf_cache, f"models--Helsinki-NLP--opus-mt-en-{lang_code}")
                 if os.path.exists(cache_path):
-                    print(f"THREAD LOG: ✅ Model found in cache: {cache_path}")
+                    logging.info(f"Model found in cache: {cache_path}")
                 else:
                     raise download_error
             
             # Skip EasyNMT initialization during download to prevent crashes
-            print(f"THREAD LOG: ✅ Model download completed successfully")
+            logging.info("Model download completed successfully")
             logging.info(f"Model download completed for {lang_code}")
             
             self.model_download_finished.emit(lang_code, "success")
+            return True
         except Exception as e:
-            print(f"THREAD LOG: ❌ ERROR downloading model for Language[Code:]{lang_code}: {e}")
+            logging.error(f"ERROR downloading model for Language[Code:]{lang_code}: {e}")
             logging.error(f"Download failed for {lang_code}: {e}")
-            sys.stdout.flush()
             try:
                 import traceback
-                print(f"THREAD LOG: Full traceback: {traceback.format_exc()}")
                 logging.error(f"Full traceback: {traceback.format_exc()}")
             except:
                 pass
-            sys.stdout.flush()
             self.model_download_finished.emit(lang_code, "failure")
 
     def _populate_sidebar(self):
@@ -1459,6 +1583,56 @@ class ZestSyncPlayer(QMainWindow):
         
         generation_box, generation_layout = self._create_setting_box("Subtitle Generation")
         
+        # Accuracy switch
+        accuracy_layout = QHBoxLayout()
+        accuracy_layout.setContentsMargins(0, 0, 0, 0)
+        
+        accuracy_info_layout = QVBoxLayout()
+        accuracy_info_layout.setContentsMargins(0, 0, 0, 0)
+        accuracy_info_layout.setSpacing(2)
+        
+        accuracy_title = QLabel("Accuracy Mode")
+        accuracy_title.setStyleSheet("background-color: transparent; border: none; font-weight: bold;")
+        
+        accuracy_desc = QLabel("Fast: Good for movies/series. Slow: Better for anime/dubbed content. But takes time.")
+        accuracy_desc.setStyleSheet("background-color: transparent; border: none; color: #aaa; font-size: 9px;")
+        accuracy_desc.setWordWrap(True)
+        
+        accuracy_info_layout.addWidget(accuracy_title)
+        accuracy_info_layout.addWidget(accuracy_desc)
+        
+        accuracy_switch_layout = QHBoxLayout()
+        accuracy_switch_layout.setContentsMargins(0, 0, 0, 0)
+        accuracy_switch_layout.setSpacing(8)
+        
+        fast_label = QLabel("Fast")
+        fast_label.setStyleSheet("background-color: transparent; border: none; font-size: 10px; color: #aaa;")
+        
+        self.accuracy_switch = SwitchButton()
+        # True = Slow (right), False = Fast (left)
+        current_mode = self.settings_manager.get_accuracy_mode()
+        self.accuracy_switch.setChecked(current_mode == "slow")
+        self.accuracy_switch.toggled.connect(self._on_accuracy_changed)
+        
+        slow_label = QLabel("Slow")
+        slow_label.setStyleSheet("background-color: transparent; border: none; font-size: 10px; color: #aaa;")
+        
+        accuracy_switch_layout.addWidget(fast_label)
+        accuracy_switch_layout.addWidget(self.accuracy_switch)
+        accuracy_switch_layout.addWidget(slow_label)
+        
+        accuracy_layout.addLayout(accuracy_info_layout)
+        accuracy_layout.addStretch()
+        accuracy_layout.addLayout(accuracy_switch_layout)
+        
+        generation_layout.addLayout(accuracy_layout)
+        
+        # Note about accuracy mode
+        accuracy_note = QLabel("Note: Only affects English subtitle generation. Translation speed remains the same.")
+        accuracy_note.setStyleSheet("background-color: transparent; border: none; color: #888; font-size: 9px; margin-top: 5px;")
+        accuracy_note.setWordWrap(True)
+        generation_layout.addWidget(accuracy_note)
+        
         self.language_selector_combo = QComboBox()
         self.language_selector_combo.setMinimumHeight(35)
         self.language_selector_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1525,7 +1699,7 @@ class ZestSyncPlayer(QMainWindow):
         credits_layout.setContentsMargins(0,0,0,0)
         credits_layout.setSpacing(5) # Tighter spacing for links
         credits_label = QLabel("Built with purpose by Anurag 💝")
-        credits_label.setFont(QFont("Roboto", 9, QFont.Weight.Bold))
+        credits_label.setFont(QFont("Roboto", 8, QFont.Weight.Bold))
         credits_label.setStyleSheet("""
             QLabel {
                 border-top: 1px dotted #888888;
@@ -1536,7 +1710,7 @@ class ZestSyncPlayer(QMainWindow):
         credits_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         github_link = QLabel("<a href='https://github.com/anu277' style='color: #f0f0f0; text-decoration: underline;'>GitHub Profile</a>");
-        github_link.setFont(QFont("Roboto", 9));
+        github_link.setFont(QFont("Roboto", 8));
         github_link.setOpenExternalLinks(True);
         github_link.setStyleSheet("border: none; padding: 0;");
         github_link.setAlignment(Qt.AlignmentFlag.AlignCenter);
@@ -1549,7 +1723,7 @@ class ZestSyncPlayer(QMainWindow):
         disclaimer_layout.setContentsMargins(0,0,0,0)
         disclaimer_layout.setSpacing(5)
         disclaimer_header = QLabel("Performance Note")
-        disclaimer_header.setFont(QFont("Roboto", 9, QFont.Weight.Bold))
+        disclaimer_header.setFont(QFont("Roboto", 7, QFont.Weight.Bold))
         disclaimer_header.setStyleSheet("""
             QLabel {
                 border-top: 1px dotted #888888;
@@ -1560,7 +1734,7 @@ class ZestSyncPlayer(QMainWindow):
         disclaimer_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         disclaimer_text = QLabel("⚠️ Estimated times based on i5-10300H (4C/8T, 10th Gen) with ~600MB RAM usage. Performance may vary by CPU speed, cores/threads, and RAM.")
-        disclaimer_text.setFont(QFont("Roboto", 8))
+        disclaimer_text.setFont(QFont("Roboto", 7))
         disclaimer_text.setStyleSheet("border: none; padding: 0; color: #888; text-align: center;")
         disclaimer_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         disclaimer_text.setWordWrap(True)
@@ -1730,6 +1904,22 @@ class ZestSyncPlayer(QMainWindow):
         else:
             self.showNormal(); self.fullscreen_btn.setIcon(qta.icon("fa5s.expand", color="#f0f0f0"))
 
+    def _on_accuracy_changed(self, is_slow):
+        mode = "slow" if is_slow else "fast"
+        self.settings_manager.set_accuracy_mode(mode)
+        
+        # Disable switch during English generation
+        if hasattr(self, 'generation_future') and self.generation_future and self.generation_future.running():
+            current_language = self.language_selector_combo.currentText().split(' (')[0]
+            if current_language == "English":
+                # Revert the switch and show warning
+                self.accuracy_switch.setChecked(not is_slow)
+                self._show_toast("Cannot change accuracy during English subtitle generation")
+                return
+        
+        logging.info(f"Accuracy mode changed to: {mode}")
+        self._show_toast(f"Accuracy set to {mode.title()} mode")
+    
     def _set_subtitle_font_size(self, size):
         self.subtitle_font_size = size
         self.mpv_player.sub_font_size = size
@@ -1739,11 +1929,11 @@ class ZestSyncPlayer(QMainWindow):
 
     def keyPressEvent(self, event: QKeyEvent):
         key = event.key()
-        if key == Qt.Key.Key_Space: self._toggle_play_pause()
-        elif key == Qt.Key.Key_Right: self._skip_forward()
-        elif key == Qt.Key.Key_Left: self._skip_backward()
-        elif key == Qt.Key.Key_Up: self._change_volume(5)
-        elif key == Qt.Key.Key_Down: self._change_volume(-5)
+        if key == Qt.Key.Key_K: self._toggle_play_pause()
+        elif key == Qt.Key.Key_L: self._skip_forward()
+        elif key == Qt.Key.Key_J: self._skip_backward()
+        elif key == Qt.Key.Key_I: self._change_volume(5)
+        elif key == Qt.Key.Key_U: self._change_volume(-5)
         elif key == Qt.Key.Key_F: self._toggle_fullscreen()
         elif key in [Qt.Key.Key_Tab, Qt.Key.Key_Backtab]: return
         else: super().keyPressEvent(event)
@@ -1757,15 +1947,19 @@ class ZestSyncPlayer(QMainWindow):
                 self.subtitle_executor.shutdown(wait=False)
             if hasattr(self, 'download_executor'):
                 self.download_executor.shutdown(wait=False)
+            if hasattr(self, 'translation_executor'):
+                self.translation_executor.shutdown(wait=False)
         except:
             pass
         event.accept()
 
     def _on_language_changed(self, language):
+        logging.info(f"🔄 LANGUAGE CHANGE: User selected '{language}'")
         self.language_selector_combo.clearFocus()
         
         # Extract clean language name (remove size suffix like "(300MB)")
         clean_language = language.split(' (')[0] if ' (' in language else language
+        logging.info(f"🔄 LANGUAGE CHANGE: Clean language name: '{clean_language}'")
         
         if self.current_media_index == -1:
             self.generate_button.setVisible(False)
@@ -1804,17 +1998,19 @@ class ZestSyncPlayer(QMainWindow):
         
         # Check if the model is downloaded for the selected language
         model_status = self.download_status.get(clean_language, {"status": "not_downloaded"})
+        logging.info(f"🔄 LANGUAGE CHANGE: {clean_language} model status: {model_status}")
 
         if os.path.exists(subtitle_path):
             self.generate_button.setVisible(False)
             self.progress_bar.setVisible(False)
             self.progress_text.setVisible(False)
             try:
-                self.mpv_player.sub_add(subtitle_path)
+                # Convert path to use forward slashes for MPV compatibility
+                mpv_path = subtitle_path.replace('\\', '/')
+                self.mpv_player.sub_add(mpv_path)
                 self._show_toast(f"Subtitle file for {clean_language} already exists. Loaded successfully.")
             except Exception as e:
                 logging.error(f"Error loading subtitle file: {e}")
-                print(f"Error loading subtitle file: {e}")
                 self._show_toast(f"Error loading subtitle file for {clean_language}")
         else:
             # For English, hide generate button and auto-start
@@ -1851,6 +2047,7 @@ class ZestSyncPlayer(QMainWindow):
 
 
     def _start_subtitle_generation(self):
+        logging.info(f"🔘 BUTTON CLICK: Generate/Download button clicked")
         if self.current_media_index == -1: 
             self._show_toast("No media loaded.")
             return
@@ -1859,14 +2056,18 @@ class ZestSyncPlayer(QMainWindow):
         # Extract clean language name (remove size suffix like "(300MB)")
         clean_language = current_language.split(' (')[0] if ' (' in current_language else current_language
         lang_code = self._get_language_code(clean_language)
+        logging.info(f"🔘 BUTTON CLICK: Processing {clean_language} (code: {lang_code})")
+        logging.info(f"🔘 BUTTON CLICK: Current download status: {self.download_status.get(clean_language, 'Not found')}")
         
         if self.download_status.get(clean_language, {}).get("status") == "not_downloaded" and clean_language != "English":
+            # Check if download is already in progress
+            if self.download_status.get(clean_language, {}).get("status") == "downloading":
+                logging.info(f"🔘 BUTTON CLICK: Download already in progress for {clean_language}")
+                return
             # Start download instead of generation
-            print(f"DEBUG: Starting download for {clean_language} (code: {lang_code})")
-            sys.stdout.flush()
+            logging.info(f"🔘 BUTTON CLICK: Starting download for {clean_language} (code: {lang_code})")
             future = self.download_executor.submit(self._download_model_in_background, lang_code)
-            print(f"DEBUG: Thread submitted, future: {future}")
-            sys.stdout.flush()
+            logging.info(f"🔘 BUTTON CLICK: Download thread submitted, future: {future}")
             self.generate_button.setText("Downloading...")
             self.generate_button.setEnabled(False)
             return
@@ -1892,12 +2093,14 @@ class ZestSyncPlayer(QMainWindow):
             return
             
         self.generate_button.setEnabled(False)
+        self.generate_button.setVisible(False)  # Hide button completely during generation
         self.progress_bar.setVisible(True)
         self.progress_text.setVisible(True)
         self.progress_bar.setValue(0)
         
-        # Disable language dropdown during any subtitle generation
+        # Disable language dropdown and accuracy switch during any subtitle generation
         self.language_selector_combo.setEnabled(False)
+        self.accuracy_switch.setEnabled(False)
         
         if task_type == "transcribe":
             self.progress_bar.setRange(0, 0)  # Animated progress bar
@@ -1914,7 +2117,7 @@ class ZestSyncPlayer(QMainWindow):
         
         self.estimated_total_time = self._calculate_estimated_time(video_duration_seconds, lang_code)
         
-        print(f"DEBUG: Video duration: {video_duration_seconds}s, Lang: {lang_code}, Estimated time: {self.estimated_total_time}s")
+        logging.debug(f"Video duration: {video_duration_seconds}s, Lang: {lang_code}, Estimated time: {self.estimated_total_time}s")
         
         estimated_time_str = str(timedelta(seconds=int(self.estimated_total_time)))
         self.progress_text.setText(f"Estimated time: {estimated_time_str}")
@@ -1928,7 +2131,7 @@ class ZestSyncPlayer(QMainWindow):
                 english_srt_path,
             )
         elif task_type == "translate":
-            self.generation_future = self.subtitle_executor.submit(
+            self.generation_future = self.translation_executor.submit(
                 self._translate_subtitles_from_english,
                 english_srt_path,
                 lang_code,
@@ -1961,47 +2164,65 @@ class ZestSyncPlayer(QMainWindow):
                 progress_percentage = min(99, int((elapsed_time / self.estimated_total_time) * 100))
                 self.progress_bar.setValue(progress_percentage)
                 remaining_time = max(0, self.estimated_total_time - elapsed_time)
-                remaining_time_str = str(timedelta(seconds=int(remaining_time)))
-                self.progress_text.setText(f"Estimated time: {remaining_time_str}")
+                remaining_minutes = int(remaining_time / 60)
+                remaining_seconds = int(remaining_time % 60)
+                self.progress_text.setText(f"Remaining: {remaining_minutes}m {remaining_seconds}s ({progress_percentage}%)")
                 # Show progress in subtitle area
-                total_time_str = str(timedelta(seconds=int(self.estimated_total_time)))
+                remaining_minutes_sub = int(remaining_time / 60)
+                remaining_seconds_sub = int(remaining_time % 60)
                 current_language = self.language_selector_combo.currentText().split(' (')[0]
                 if current_language == "English":
-                    self.subtitle_label.setText(f"GENERATING SUBTITLES.... {progress_percentage}% ({remaining_time_str} / {total_time_str})")
+                    self.subtitle_label.setText(f"GENERATING SUBTITLES.... {progress_percentage}% ({remaining_minutes_sub}m {remaining_seconds_sub}s remaining)")
                 else:
-                    self.subtitle_label.setText(f"TRANSLATING SUBTITLES.... {progress_percentage}% ({remaining_time_str} / {total_time_str})")
+                    self.subtitle_label.setText(f"TRANSLATING SUBTITLES.... {progress_percentage}% ({remaining_minutes_sub}m {remaining_seconds_sub}s remaining)")
                 self.subtitle_label.setVisible(True)
             else:
                 remaining_time = max(0, self.estimated_total_time - elapsed_time)
                 remaining_minutes = int(remaining_time / 60)
                 remaining_seconds = int(remaining_time % 60)
-                self.progress_text.setText(f"Generating Base Language...\n {remaining_minutes}m {remaining_seconds}s remaining")
+                self.progress_text.setText(f"Generating Base Language... {remaining_minutes}m {remaining_seconds}s remaining")
                 # Show progress in subtitle area for base language generation
                 self.subtitle_label.setText(f"GENERATING BASE SUBTITLES.... ({remaining_minutes}m {remaining_seconds}s remaining)")
                 self.subtitle_label.setVisible(True)
 
     def _finalize_generation(self, future, output_path):
-        self.generate_button.setEnabled(True)
-        self.language_selector_combo.setEnabled(True)  # Re-enable language dropdown
+        # Keep UI disabled until SRT is loaded
         try:
             result = future.result()
             if result:
-                self._show_toast("✅ Subtitles generated and loaded!")
+                # Show loading message
+                self.progress_text.setText("Loading subtitle file...")
+                
                 try:
                     if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                        self.mpv_player.sub_add(output_path)
-                        print(f"THREAD LOG: ✅ Subtitle file loaded successfully: {output_path}")
+                        # Convert path to use forward slashes for MPV compatibility
+                        mpv_path = output_path.replace('\\', '/')
+                        self.mpv_player.sub_add(mpv_path)
+                        logging.info(f"Subtitle file loaded successfully: {output_path}")
+                        self._show_toast("✅ Subtitles generated and loaded!")
+                        # Now cleanup UI after successful load
+                        self._cleanup_generation_ui()
                     else:
-                        print(f"THREAD LOG: ❌ Subtitle file is empty or doesn't exist: {output_path}")
+                        logging.error(f"Subtitle file is empty or doesn't exist: {output_path}")
                         self._show_toast("Subtitle file is empty or corrupted")
+                        self._cleanup_generation_ui()
                 except Exception as e:
-                    print(f"Error loading generated subtitle file: {e}")
-                    print(f"THREAD LOG: File exists: {os.path.exists(output_path)}")
-                    print(f"THREAD LOG: File size: {os.path.getsize(output_path) if os.path.exists(output_path) else 'N/A'}")
-                    self._show_toast("Subtitles generated but failed to load")
+                    logging.error(f"Error loading generated subtitle file: {e}")
+                    # Try alternative path formats
+                    try:
+                        import urllib.parse
+                        file_uri = urllib.parse.urljoin('file:', urllib.request.pathname2url(output_path))
+                        self.mpv_player.sub_add(file_uri)
+                        logging.info(f"Subtitle loaded with URI format: {file_uri}")
+                        self._show_toast("✅ Subtitles generated and loaded!")
+                        self._cleanup_generation_ui()
+                    except:
+                        self._show_toast("Subtitles generated but failed to load")
+                        self._cleanup_generation_ui()
             else:
                 self.progress_text.setText("❌ Generation failed.")
                 self._show_toast("Error generating subtitles. Check console for details.")
+                self._cleanup_generation_ui()
         except Exception as e:
             if "cancelled" in str(e).lower() or "interrupted" in str(e).lower():
                 self._show_toast("⚠️ Subtitle generation interrupted")
@@ -2009,8 +2230,17 @@ class ZestSyncPlayer(QMainWindow):
             else:
                 self._show_toast(f"An error occurred: {str(e)}")
                 self.progress_text.setText(f"Error: {e}")
+            self._cleanup_generation_ui()
+    
+    def _cleanup_generation_ui(self):
+        """Clean up generation UI elements after completion"""
+        self.generate_button.setEnabled(True)
+        self.generate_button.setVisible(True)
+        self.language_selector_combo.setEnabled(True)
+        self.accuracy_switch.setEnabled(True)
         
-        QTimer.singleShot(3000, lambda: [
+        # Delay hiding progress elements to avoid flicker
+        QTimer.singleShot(1000, lambda: [
             self.progress_bar.setVisible(False), 
             self.progress_text.setVisible(False),
             self._on_language_changed(self.language_selector_combo.currentText())
@@ -2023,7 +2253,7 @@ class ZestSyncPlayer(QMainWindow):
         else:
             base_path = os.path.dirname(os.path.abspath(__file__))
         try:
-            print(f"THREAD LOG: Starting audio transcribe process.")
+            logging.info("Starting audio transcribe process.")
             audio_path = os.path.join(tempfile.gettempdir(), f"audio_{os.path.basename(video_path)}.mp3")
             # Try different ffmpeg paths (EXE-compatible)
             ffmpeg_paths = [
@@ -2048,9 +2278,15 @@ class ZestSyncPlayer(QMainWindow):
             
             command = [ffmpeg_cmd, "-i", video_path, "-vn", "-acodec", "libmp3lame", "-ac", "1", "-ar", "16000", "-b:a", "128k", "-y", audio_path]
             subprocess.run(command, check=True, capture_output=True, text=True)
-            print("THREAD LOG: ✅ Audio extraction successful.")
+            logging.info("Audio extraction successful.")
             
-            model_path = os.path.join(base_path, "whisper")
+            # Get accuracy mode and set model path
+            accuracy_mode = self.settings_manager.get_accuracy_mode()
+            model_subdir = "small" if accuracy_mode == "slow" else "base"
+            model_path = os.path.join(base_path, "whisper", model_subdir)
+            
+            logging.info(f"Using {accuracy_mode} mode with model: {model_path}")
+            
             # Lazy import WhisperModel only when needed
             from faster_whisper import WhisperModel
             model = WhisperModel(model_path, local_files_only=True, device="cpu", compute_type="int8")
@@ -2061,10 +2297,10 @@ class ZestSyncPlayer(QMainWindow):
                 vad_available = True
             except:
                 vad_available = False
-                print("THREAD LOG: VAD filtering disabled (ONNX not available)")
+                logging.warning("VAD filtering disabled (ONNX not available)")
             
             segments_generator, info = model.transcribe(audio_path, language=lang_code, vad_filter=vad_available)
-            print(f"THREAD LOG: ✅ transcribe complete.")
+            logging.info("Transcribe complete.")
             
             post_processed_segments = []
             for segment in segments_generator:
@@ -2073,7 +2309,7 @@ class ZestSyncPlayer(QMainWindow):
             self._write_srt_file(output_path, post_processed_segments)
 
             os.unlink(audio_path)
-            print("THREAD LOG: ✅ Temporary audio file deleted.")
+            logging.info("Temporary audio file deleted.")
             return True
             
         except Exception as e:
@@ -2084,8 +2320,7 @@ class ZestSyncPlayer(QMainWindow):
 
     def _translate_subtitles_from_english(self, english_srt_path, target_lang_code, output_path):
         try:
-            print(f"THREAD LOG: Starting translation from English SRT to {target_lang_code}.")
-            sys.stdout.flush()
+            logging.info(f"Starting translation from English SRT to {target_lang_code}.")
             
             subtitles_with_timestamps = []
             with open(english_srt_path, "r", encoding="utf-8") as f:
@@ -2100,32 +2335,26 @@ class ZestSyncPlayer(QMainWindow):
                     text = " ".join(lines[2:])
                     subtitles_with_timestamps.append({'timestamps': timestamps, 'text': text})
 
-            print(f"THREAD LOG: Parsed {len(subtitles_with_timestamps)} subtitle segments.")
-            sys.stdout.flush()
+            logging.info(f"Parsed {len(subtitles_with_timestamps)} subtitle segments.")
             
             # Initialize EasyNMT with error handling
             if self.easy_nmt_model is None:
-                print(f"THREAD LOG: Initializing EasyNMT model...")
-                sys.stdout.flush()
+                logging.info("Initializing EasyNMT model...")
                 try:
                     from easynmt import EasyNMT
                     self.easy_nmt_model = EasyNMT('opus-mt')
                     self.easy_nmt_model.sentence_splitter = lambda text, lang: [text]
-                    print(f"THREAD LOG: ✅ EasyNMT model initialized successfully.")
-                    sys.stdout.flush()
+                    logging.info("EasyNMT model initialized successfully.")
                 except Exception as init_error:
-                    print(f"THREAD LOG: ❌ EasyNMT initialization failed: {init_error}")
-                    sys.stdout.flush()
+                    logging.error(f"EasyNMT initialization failed: {init_error}")
                     return False
 
-            print(f"THREAD LOG: Starting batch translation...")
-            sys.stdout.flush()
+            logging.info("Starting batch translation...")
             
             all_english_text = [sub['text'] for sub in subtitles_with_timestamps]
             translated_text_block = self.easy_nmt_model.translate(all_english_text, source_lang="en", target_lang=target_lang_code)
             
-            print(f"THREAD LOG: ✅ Batch translation completed.")
-            sys.stdout.flush()
+            logging.info("Batch translation completed.")
             
             translated_subtitles = [{'timestamps': subtitles_with_timestamps[i]['timestamps'], 'text': translated_text_block[i]} for i in range(len(subtitles_with_timestamps))]
 
@@ -2135,31 +2364,26 @@ class ZestSyncPlayer(QMainWindow):
                     srt_file.write(f"{sub['timestamps']}\n")
                     srt_file.write(f"{sub['text']}\n\n")
 
-            print(f"THREAD LOG: ✅ Translation to {target_lang_code} complete.")
-            sys.stdout.flush()
+            logging.info(f"Translation to {target_lang_code} complete.")
             
             # Clear model from memory to reduce RAM usage
             if self.easy_nmt_model is not None:
                 del self.easy_nmt_model
                 self.easy_nmt_model = None
-                print(f"THREAD LOG: ✅ EasyNMT model cleared from memory.")
-                sys.stdout.flush()
+                logging.info("EasyNMT model cleared from memory.")
             
             return True
 
         except Exception as e:
-            print(f"THREAD LOG: ❌ ERROR: An unexpected error occurred during translation: {str(e)}")
-            sys.stdout.flush()
+            logging.error(f"ERROR: An unexpected error occurred during translation: {str(e)}")
             import traceback
-            print(f"THREAD LOG: Full traceback: {traceback.format_exc()}")
-            sys.stdout.flush()
+            logging.error(f"Full traceback: {traceback.format_exc()}")
             
             # Clear model from memory even on failure
             if self.easy_nmt_model is not None:
                 del self.easy_nmt_model
                 self.easy_nmt_model = None
-                print(f"THREAD LOG: ✅ EasyNMT model cleared from memory after error.")
-                sys.stdout.flush()
+                logging.info("EasyNMT model cleared from memory after error.")
             
             return False
 
@@ -2175,7 +2399,7 @@ class ZestSyncPlayer(QMainWindow):
                 srt_file.write(f"{text}\n\n")
 
     def _update_status_bar(self, message):
-        print(f"GUI_STATUS: {message}")
+        logging.info(f"GUI_STATUS: {message}")
 
     def _show_toast(self, message):
         self.toast_label.setText(message)
@@ -2202,10 +2426,17 @@ class ZestSyncPlayer(QMainWindow):
         directory = os.path.dirname(video_path)
         return os.path.join(directory, f"{base_name}.{lang_code}.srt")
 
-# The main application entry point remains the same
+# The main application entry point with intro
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    # Show intro first
+    intro = IntroWindow()
+    intro.show()
+    
+    # Create main window but don't show yet
     window = ZestSyncPlayer()
+    window.hide()  # Ensure it's hidden initially
     
     # Handle command line arguments for "Open with"
     if len(sys.argv) > 1:
@@ -2213,5 +2444,13 @@ if __name__ == "__main__":
         if os.path.exists(file_path) and file_path.lower().endswith(('.mp4', '.mkv', '.avi')):
             window._add_media_files([file_path])
     
-    window.show()
+    # Show main window after intro finishes
+    def show_main_window():
+        window.showMaximized()
+        # Show tutorial and language dialog if first run
+        if window.is_first_run:
+            QTimer.singleShot(500, window.show_tutorial_window)
+    
+    intro.finished.connect(show_main_window)
+    
     sys.exit(app.exec())
