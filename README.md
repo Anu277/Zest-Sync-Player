@@ -1,7 +1,7 @@
 # Zest Sync Player
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows/)
 
 **AI-Powered Video Player with Automatic Subtitle Generation & Translation**
@@ -10,22 +10,28 @@
 
 ## 🎯 Features
 
-- **🎬 Video Playback**: Supports MP4, MKV, AVI formats
-- **🤖 AI Subtitles**: Automatic speech-to-text using Whisper AI
-- **🌍 Multi-Language**: Translate subtitles to 14+ languages
-- **⚡ Real-time**: Generate subtitles while watching
-- **📱 Modern UI**: Dark interface
-- **🎛️ Full Controls**: Speed, volume, fullscreen, timeline
-- **📂 Queue Management**: Playlist support with auto-play
+- **🎬 Video Playback**: Supports MP4, MKV, AVI formats with MPV engine
+- **🤖 AI Subtitles**: Automatic speech-to-text using faster-whisper
+- **🌍 Multi-Language**: Translate subtitles to 14 languages (90+ transcription languages)
+- **⚡ Dual Accuracy**: Fast/Slow modes for optimal speed vs quality
+- **📱 UI Style**: Modern dark interface with smooth animations and tutorial system
+- **🎛️ Full Controls**: Speed, volume, fullscreen, timeline scrubbing
+- **📂 Queue Management**: Playlist support with drag-drop and auto-play
+- **⚙️ Smart Settings**: Persistent accuracy modes and font size controls
+- **🔄 System Info**: Automatic hardware detection and performance logging
+- **🎓 Interactive Tutorial**: First-time user guide with visual walkthrough
+- **📊 Real-time Progress**: Live estimated time display during subtitle generation
+- **🔒 Complete Uninstall**: Removes all cache, settings, and system integration
 
 ## 🚀 Quick Start
 
 ### For Users
 1. **Download** the installer from [GitHub Releases](https://github.com/anu277/zest-sync-player/releases/latest)
 2. **Install** and run the application
-3. **First Launch**: Select languages to download (one-time setup)
-4. **Import Video**: Click the **'+'** button to add media files
-5. **Generate Subtitles**: Select language and click "Generate"
+3. **Tutorial**: Interactive guide shows you how to use the player (first-time users)
+4. **First Launch**: Select languages to download (one-time setup)
+5. **Import Video**: Click the **'+'** button to add media files
+6. **Generate Subtitles**: Select language and click "Generate"
 
 ### For Developers
 
@@ -42,15 +48,27 @@
 > └── ffprobe.exe
 > ```
 > 
-> **Faster-Whisper Base Model** (Download from [Hugging Face](https://huggingface.co/guillaumekln/faster-whisper-base)):
+> **Faster-Whisper Models** (Download from [Hugging Face](https://huggingface.co/guillaumekln/)):
 > ```
 > Whisper/
-> ├── config.json
-> ├── main
-> ├── model.bin
-> ├── tokenizer.json
-> └── vocabulary.txt
+> ├── base/          # Fast mode model
+> │   ├── config.json
+> │   ├── model.bin
+> │   ├── tokenizer.json
+> │   └── vocabulary.txt
+> └── small/         # Slow mode model
+>     ├── config.json
+>     ├── model.bin
+>     ├── tokenizer.json
+>     └── vocabulary.txt
 > ```
+> 
+> **Additional Files**:
+> - `libmpv-2.dll` (MPV library)
+> - `mpv.exe` (MPV player)
+> - `icon.ico` (Application icon)
+> - `assets/intro.mp4` (Intro video)
+> - `assets/manual/` (Tutorial images: 1.jpg, 3.jpg, 4.jpg, 5.png)
 
 ```bash
 git clone https://github.com/anu277/zest-sync-player.git
@@ -80,9 +98,9 @@ python main.py
 
 ## ⌨️ Keyboard Shortcuts
 
-- **Space**: Play/Pause
-- **←/→**: Skip backward/forward (10s)
-- **↑/↓**: Volume up/down
+- **K**: Play/Pause
+- **J/L**: Skip backward/forward (10s)
+- **U/I**: Volume down/up
 - **F**: Toggle fullscreen
 - **Mouse Wheel**: Volume control (over video)
 
@@ -95,44 +113,51 @@ python main.py
 
 ## 🔧 How It Works
 
-1. **Audio Extraction**: FFmpeg extracts audio from video
-2. **Speech Recognition**: Whisper AI transcribes to English
-3. **Translation**: Helsinki-NLP models translate to target language
-4. **Subtitle Display**: Real-time subtitle overlay
+1. **Audio Extraction**: FFmpeg extracts audio from video with optimized settings
+2. **Speech Recognition**: faster-whisper transcribes with dual accuracy modes
+3. **Translation**: Helsinki-NLP models with automatic model downloading
+4. **Multi-threading**: Background processing prevents UI freezing
+5. **Subtitle Display**: Real-time overlay with customizable fonts and transparency
 
 ## 📁 File Locations
 
 - **Installation**: `C:\Program Files\Zest Sync Player\`
 - **Logs**: `%USERPROFILE%\.zestsync_logs\`
-- **Models**: `C:\Program Files\Zest Sync Player\_internal\models\hub\`
+- **Models**: `%LOCALAPPDATA%\Zest Sync\cache\models\hub\`
+- **Settings**: `%USERPROFILE%\.zestsyncsetting.json`
 - **Subtitles**: Saved next to video files as `.srt`
 
 ## 🛠️ Troubleshooting
 
 ### Slow Subtitle Generation
 - **Cause**: CPU-intensive AI processing
-- **Solution**: Close other applications, use SSD storage
+- **Solution**: Use Fast mode, close other applications, ensure SSD storage
 
 ### Model Download Fails
-- **Cause**: Network connectivity issues
-- **Solution**: Check internet connection, retry download
+- **Cause**: Network connectivity or Windows symlink issues
+- **Solution**: Check internet connection, run as administrator, retry download
 
 ### Video Won't Play
-- **Cause**: Unsupported format or codec
-- **Solution**: Convert to MP4/H.264 format
+- **Cause**: Unsupported format or missing codecs
+- **Solution**: Convert to MP4/H.264 format, install K-Lite Codec Pack
 
 ### Application Won't Start
 - **Cause**: Missing dependencies or antivirus blocking
-- **Solution**: Add to antivirus exclusions, run as administrator
+- **Solution**: Add to antivirus exclusions, run as administrator, check logs
 
-### First Launch Crash (Known Issue)
-- **Cause**: Initial setup and model initialization
-- **Solution**: Simply reopen the application (max 2 times) - this resolves automatically
+### CUDA Not Detected
+- **Cause**: PyTorch CPU-only version installed
+- **Solution**: Install CUDA-enabled PyTorch manually for GPU acceleration
+
+### Settings Not Saving
+- **Cause**: File permissions or corrupted settings file
+- **Solution**: Run as administrator, delete `.zestsyncsetting.json` to reset
 
 ## 📊 Performance Notes
 
 **Estimated Generation Times** (based on i5-10300H, 4C/8T):
-- **English Transcription**: ~1.4 minutes per 10-minute video
+- **English Fast Mode**: ~1.4 minutes per 10-minute video
+- **English Slow Mode**: ~10 minutes per 25-minute video (higher accuracy)
 - **Translation**: ~1.2-4 minutes depending on target language
 - **RAM Usage**: ~600MB during processing
 
@@ -144,13 +169,14 @@ python main.py
 - **No Data Upload**: Videos and subtitles never leave your computer
 - **Model Downloads**: Only language models are downloaded from Hugging Face
 - **Logs**: Local debug logs only (auto-deleted after 24 hours)
+- **Clean Uninstall**: Complete removal of all data, cache, and system integration
 
 ## 🆘 Support
 
 - **Issues**: [GitHub Issues](https://github.com/anu277/zest-sync-player/issues)
 - **Logs**: Check `%USERPROFILE%\.zestsync_logs\`
 - **Discussions**: [GitHub Discussions](https://github.com/anu277/zest-sync-player/discussions)
-- **Uninstall**: Use Windows "Add or Remove Programs"
+- **Uninstall**: Use Windows "Add or Remove Programs" (removes all data and cache)
 
 ## 🤝 Contributing
 
@@ -170,4 +196,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Version 2.0** | Built for Windows 10/11 | Self-contained AI-powered video player
+**Version 2.0** | Built for Windows 10/11 | Self-contained AI-powered video player with tutorial system and dual accuracy modes

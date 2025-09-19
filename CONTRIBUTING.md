@@ -5,7 +5,7 @@ Thank you for your interest in contributing!
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/zest-sync-player.git`
+2. Clone your fork: `git clone https://github.com/anu277/zest-sync-player.git`
 3. Install dependencies: `pip install -r requirements.txt`
 4. Create a branch: `git checkout -b feature/your-feature`
 
