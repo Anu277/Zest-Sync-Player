@@ -11,7 +11,7 @@
 - **Zest Sync Player** - CPU-optimized version for all devices
 - **Zest Sync G** - GPU-accelerated version for CUDA-compatible devices (5-10x faster)
 
-![Zest Sync Player Demo](https://raw.githubusercontent.com/anu277/zest-sync-player/icon.ico)
+![Zest Sync Player Demo](https://raw.githubusercontent.com/Anu277/Zest-Sync-Player/refs/heads/main/icon.ico)
 
 ## 🎯 Features
 
