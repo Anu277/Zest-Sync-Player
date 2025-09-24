@@ -421,7 +421,11 @@ class SwitchButton(QPushButton):
         super().__init__(parent)
         self.setCheckable(True)
         self.setChecked(True)
-        self.setFixedSize(50, 28)
+        # Responsive switch size based on screen width
+        screen = QApplication.primaryScreen().geometry()
+        switch_width = max(35, min(50, int(screen.width() / 30)))  # 35-50px range
+        switch_height = max(20, min(28, int(switch_width * 0.56)))  # Maintain aspect ratio
+        self.setFixedSize(switch_width, switch_height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -435,10 +439,15 @@ class SwitchButton(QPushButton):
         rect = QRectF(0, 0, self.width(), self.height())
         painter.setBrush(QBrush(bg_color))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(rect, 14, 14)
+        # Responsive border radius
+        border_radius = min(self.height() / 2, 14)
+        painter.drawRoundedRect(rect, border_radius, border_radius)
         
-        handle_pos = self.width() - 24 if self.isChecked() else 4
-        handle_rect = QRectF(handle_pos, 4, 20, 20)
+        # Responsive handle size and position
+        handle_size = max(12, self.height() - 8)  # Handle size based on switch height
+        handle_margin = (self.height() - handle_size) / 2
+        handle_pos = self.width() - handle_size - handle_margin if self.isChecked() else handle_margin
+        handle_rect = QRectF(handle_pos, handle_margin, handle_size, handle_size)
         painter.setBrush(QBrush(handle_color))
         painter.drawEllipse(handle_rect)
 
@@ -467,7 +476,7 @@ class ZestSyncPlayer(QMainWindow):
         # Base transcription time factors (seconds of processing per 10-minute video)
         if lang_code == "en":  # English transcription
             if accuracy_mode == "slow":
-                base_factor = 600  # 10 minutes for 25-minute video (slow/accurate)
+                base_factor = 372  # 6.2 minutes for 24-minute video (slow/accurate)
             else:
                 base_factor = 85   # 1.4 minutes for 10-minute video (fast)
         else:
@@ -556,7 +565,23 @@ class ZestSyncPlayer(QMainWindow):
     def _play_selected_media(self, item):
         file_path = item.data(Qt.ItemDataRole.UserRole)
         self.current_media_index = self.media_list_widget.row(item)
+        self._update_playing_item_style()
         self._play_media(file_path)
+    
+    def _update_playing_item_style(self):
+        # Mark currently playing item with CSS property
+        for i in range(self.media_list_widget.count()):
+            item = self.media_list_widget.item(i)
+            if i == self.current_media_index:
+                item.setData(Qt.ItemDataRole.UserRole + 2, "true")  # Mark as playing
+                # Force style update
+                self.media_list_widget.setStyleSheet(self.media_list_widget.styleSheet())
+            else:
+                item.setData(Qt.ItemDataRole.UserRole + 2, "false")
+    
+    def _on_selection_changed(self):
+        # Update playing item color when selection changes
+        QTimer.singleShot(10, self._update_playing_item_style)  # Delay to let selection settle
 
     def _play_media(self, file_path):
         self.video_label.setVisible(False)
@@ -566,6 +591,7 @@ class ZestSyncPlayer(QMainWindow):
         self.status_bar_label.setText(f"Now Playing: {os.path.basename(file_path)}")
         self.play_pause_btn.setIcon(qta.icon("fa5s.pause", color="#f0f0f0"))
         self.position_timer.start()
+        self._update_playing_item_style()
 
         # Force English selection when media loads
         for i in range(self.language_selector_combo.count()):
@@ -772,7 +798,16 @@ class ZestSyncPlayer(QMainWindow):
             icon_path = 'icon.ico'
         self.setWindowIcon(QIcon(icon_path))
         self.setWindowTitle("Zest Sync")
-        self.setMinimumSize(1280, 768)
+        
+        # Use default window frame
+        # Removed custom frameless window
+        
+        # Get screen dimensions and set responsive minimum size
+        from PyQt6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen().geometry()
+        min_width = min(1280, int(screen.width() * 0.7))
+        min_height = min(768, int(screen.height() * 0.7))
+        self.setMinimumSize(min_width, min_height)
         
         # Check if this is first run (after window is shown)
         self.first_run_file = os.path.join(os.path.expanduser("~"), ".zestsync_first_run")
@@ -799,7 +834,10 @@ class ZestSyncPlayer(QMainWindow):
         self.media_duration = 0
         self.is_fullscreen = False
         self.subtitle_font_size = 24
+        self.subtitle_color = "#ffffff"
+        self.subtitle_stroke = False
         self.last_mouse_pos = QPointF()
+
 
         # NEW: Background thread executors
         self.subtitle_executor = ThreadPoolExecutor(max_workers=1)
@@ -844,9 +882,18 @@ class ZestSyncPlayer(QMainWindow):
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.main_layout = QHBoxLayout(self.central_widget)
+        self.window_layout = QVBoxLayout(self.central_widget)
+        self.window_layout.setContentsMargins(0, 0, 0, 0)
+        self.window_layout.setSpacing(0)
+        
+
+        
+        # Main content area
+        self.content_widget = QWidget()
+        self.main_layout = QHBoxLayout(self.content_widget)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
+        self.window_layout.addWidget(self.content_widget)
 
         # --- Video Panel Section ---
         self.video_panel = QWidget()
@@ -869,10 +916,13 @@ class ZestSyncPlayer(QMainWindow):
             wid=str(int(self.video_container.winId())),
             hr_seek='yes', ytdl=True
         )
+        # Suppress cover type warnings
+        self.mpv_player.msg_level = 'all=error'
         self.mpv_player.sub_font_size = self.subtitle_font_size
-        # Remove black stroke/outline from subtitles
-        self.mpv_player.sub_border_size = 0
-        self.mpv_player.sub_shadow_offset = 0
+        self.mpv_player.sub_color = self.subtitle_color
+        # Remove black stroke/outline from subtitles by default
+        self.mpv_player.sub_border_size = 0 if not self.subtitle_stroke else 2
+        self.mpv_player.sub_shadow_offset = 0 if not self.subtitle_stroke else 1
         self.mpv_player.observe_property('time-pos', self._on_time_update)
         self.mpv_player.observe_property('duration', self._on_duration_update)
         self.mpv_player.observe_property('sub-text', self._on_subtitle_update)
@@ -994,7 +1044,10 @@ class ZestSyncPlayer(QMainWindow):
 
         # --- NEW SIDEBAR ANIMATION LOGIC ---
         self.sidebar = QWidget()
-        self.sidebar.setFixedWidth(300)
+        # Responsive sidebar width based on screen size
+        screen = QApplication.primaryScreen().geometry()
+        sidebar_width = max(250, min(350, int(screen.width() * 0.22)))
+        self.sidebar.setFixedWidth(sidebar_width)
         self.sidebar.setStyleSheet("background-color: #1e1e1e;")
         self.sidebar_layout = QVBoxLayout(self.sidebar)
         self._populate_sidebar()
@@ -1193,13 +1246,19 @@ class ZestSyncPlayer(QMainWindow):
                 border-radius: 8px;
             }
         """)
+        # Responsive margins and spacing
+        screen = QApplication.primaryScreen().geometry()
+        margin = max(8, int(screen.width() / 160))  # 8-12px based on screen
+        spacing = max(6, int(screen.height() / 140))  # 6-10px based on screen
+        
         box_layout = QVBoxLayout(box)
-        box_layout.setContentsMargins(12, 12, 12, 12)
-        box_layout.setSpacing(10)
+        box_layout.setContentsMargins(margin, margin, margin, margin)
+        box_layout.setSpacing(spacing)
 
         if title:
             title_label = QLabel(title)
-            title_label.setFont(QFont("Roboto", 10, QFont.Weight.Bold))
+            font_size = max(9, int(screen.width() / 180))  # 9-11px based on screen
+            title_label.setFont(QFont("Roboto", font_size, QFont.Weight.Bold))
             title_label.setStyleSheet("background-color: transparent; border: none;")
             box_layout.addWidget(title_label)
         
@@ -1485,8 +1544,12 @@ class ZestSyncPlayer(QMainWindow):
             if widget is not None:
                 widget.deleteLater()
 
-        self.sidebar_layout.setContentsMargins(15, 20, 15, 20)
-        self.sidebar_layout.setSpacing(15)
+        # Responsive sidebar margins and spacing
+        screen = QApplication.primaryScreen().geometry()
+        sidebar_margin = max(10, int(screen.width() / 100))  # 10-19px
+        sidebar_spacing = max(10, int(screen.height() / 60))  # 10-18px
+        self.sidebar_layout.setContentsMargins(sidebar_margin, sidebar_margin, sidebar_margin, sidebar_margin)
+        self.sidebar_layout.setSpacing(sidebar_spacing)
 
         top_container = QWidget()
         top_layout = QVBoxLayout(top_container)
@@ -1495,7 +1558,8 @@ class ZestSyncPlayer(QMainWindow):
         
         queue_header_layout = QHBoxLayout()
         queue_header_label = QLabel("Media Queue")
-        queue_header_label.setFont(QFont("Roboto", 12, QFont.Weight.Bold))
+        header_font_size = max(10, int(screen.width() / 140))  # 10-16px
+        queue_header_label.setFont(QFont("Roboto", header_font_size, QFont.Weight.Bold))
         queue_header_layout.addWidget(queue_header_label)
         queue_header_layout.addStretch()
         self.import_media_btn = self._create_icon_button("fa5s.plus", size=28, icon_size=12)
@@ -1524,13 +1588,58 @@ class ZestSyncPlayer(QMainWindow):
         self.media_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.media_list_widget.customContextMenuRequested.connect(self._show_media_context_menu)
         self.media_list_widget.setStyleSheet("""
-            QListWidget { border: 1px solid #474747; border-radius: 10px; padding: 10px; }
-            QListWidget::item { padding: 3px; border-radius: 3px; }
-            QListWidget::item:hover { background-color: #333; cursor: pointer; }
-            QListWidget::item:selected { background-color: #e50914; color: white; }
+            QListWidget { 
+                border: 1px solid #474747; 
+                border-radius: 10px; 
+                padding: 8px; 
+                background-color: #2a2a2a;
+            }
+            QListWidget::item { 
+                padding: 3px; 
+                border-radius: 3px; 
+                margin: 1px;
+            }
+            QListWidget::item:hover { 
+                background-color: #333; 
+                cursor: pointer; 
+            }
+            QListWidget::item:selected { 
+                background-color: #0066cc; 
+                color: white; 
+            }
+            QListWidget::item[playing="true"] {
+                background-color: rgba(229, 4, 9, 80);
+                border: 2px solid #e50409;
+                color: white;
+            }
+            QListWidget::item[playing="true"]:selected {
+                background-color: #0066cc;
+                border: 2px solid #e50409;
+                color: white;
+            }
+            QScrollBar:vertical {
+                background-color: #e50409;
+                width: 8px;
+                border-radius: 4px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #ffffff;
+                border-radius: 4px;
+                min-height: 20px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #f61a27;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
         """)
         self.media_list_widget.setCursor(Qt.CursorShape.OpenHandCursor)
         self.media_list_widget.itemDoubleClicked.connect(self._play_selected_media)
+        self.media_list_widget.itemSelectionChanged.connect(self._on_selection_changed)
         
         top_layout.addLayout(queue_header_layout)
         top_layout.addWidget(self.media_list_widget)
@@ -1545,20 +1654,55 @@ class ZestSyncPlayer(QMainWindow):
         
         for btn in [delete_selected_btn, delete_all_btn]:
              btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-             btn.setStyleSheet("QPushButton { text-align: center; padding: 5px; background-color: #2a2a2a; border: 1px solid #474747; border-radius: 5px; } QPushButton:hover { border-color: #e50914; }")
+             # Compressed styling - smaller font, less padding, reduced height
+             btn_font_size = max(8, int(screen.width() / 140))  # 2px smaller than before
+             btn_padding = max(2, int(screen.width() / 600))    # Much less padding
+             btn.setStyleSheet(f"QPushButton {{ text-align: center; padding: {btn_padding}px; background-color: #2a2a2a; border: 1px solid #474747; border-radius: 3px; font-size: {btn_font_size}px; min-height: 20px; max-height: 25px; }} QPushButton:hover {{ border-color: #e50914; }}")
         
         queue_controls_layout.addWidget(delete_selected_btn)
         queue_controls_layout.addWidget(delete_all_btn)
         top_layout.addLayout(queue_controls_layout)
         
+        # Create scroll area for settings
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        settings_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: #000000;
+            }
+            QScrollBar:vertical {
+                background-color: #e50409;
+                width: 8px;
+                border-radius: 4px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #e50409;
+                border-radius: 4px;
+                min-height: 20px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #000000;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
+        """)
+        
         bottom_container = QWidget()
         bottom_layout = QVBoxLayout(bottom_container)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-        bottom_layout.setSpacing(15)
+        bottom_layout.setContentsMargins(5, 5, 5, 5)  # Add padding from scrollbar
+        bottom_layout.setSpacing(12)  # Reduced spacing for compressed layout
 
         settings_header_label = QLabel("Settings")
-        settings_header_label.setFont(QFont("Roboto", 12, QFont.Weight.Bold))
-        settings_header_label.setStyleSheet("margin-top: 10px;")
+        settings_header_label.setFont(QFont("Roboto", header_font_size, QFont.Weight.Bold))
+        margin_top = max(8, int(screen.height() / 90))  # 8-12px
+        settings_header_label.setStyleSheet(f"margin-top: {margin_top}px;")
 
         display_box, display_layout = self._create_setting_box("Subtitles Display")
         
@@ -1580,6 +1724,34 @@ class ZestSyncPlayer(QMainWindow):
         font_size_layout.addWidget(font_size_label)
         font_size_layout.addWidget(self.font_size_slider)
         display_layout.addLayout(font_size_layout)
+        
+        # Font color selection
+        color_layout = QHBoxLayout()
+        color_label = QLabel("Font Color")
+        color_label.setStyleSheet("background: transparent; border: none;")
+        self.font_color_combo = QComboBox()
+        self.font_color_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        colors = [("Black", "#000000"), ("Blue", "#0080ff"), ("Green", "#00ff00"), ("Orange", "#ffa500"), ("Red", "#ff0000"), ("White", "#ffffff"), ("Yellow", "#ffff00")]
+        for name, hex_color in colors:
+            self.font_color_combo.addItem(name)
+        self.font_color_combo.setStyleSheet("QComboBox { background-color: #1e1e1e; color: #f0f0f0; border: 1px solid #474747; border-radius: 5px; padding: 2px 5px; } QComboBox:hover { border-color: #e50914; } QComboBox QAbstractItemView { background-color: #1e1e1e; color: #f0f0f0; border: 1px solid #474747; }")
+        self.font_color_combo.currentTextChanged.connect(self._set_subtitle_color)
+        color_layout.addWidget(color_label)
+        color_layout.addWidget(self.font_color_combo)
+        display_layout.addLayout(color_layout)
+        
+        # Stroke on/off
+        stroke_layout = QHBoxLayout()
+        stroke_layout.setContentsMargins(0,0,0,0)
+        stroke_label = QLabel("Text Stroke")
+        stroke_label.setStyleSheet("background-color: transparent; border: none;")
+        self.stroke_switch = SwitchButton()
+        self.stroke_switch.setChecked(False)
+        self.stroke_switch.toggled.connect(self._toggle_stroke)
+        stroke_layout.addWidget(stroke_label)
+        stroke_layout.addStretch()
+        stroke_layout.addWidget(self.stroke_switch)
+        display_layout.addLayout(stroke_layout)
         
         generation_box, generation_layout = self._create_setting_box("Subtitle Generation")
         
@@ -1753,8 +1925,11 @@ class ZestSyncPlayer(QMainWindow):
         bottom_layout.addWidget(bottom_info_container)
         bottom_layout.addWidget(bottom_info_container)
         
+        # Set the bottom container in scroll area
+        settings_scroll.setWidget(bottom_container)
+        
         self.sidebar_layout.addWidget(top_container, 1)
-        self.sidebar_layout.addWidget(bottom_container)
+        self.sidebar_layout.addWidget(settings_scroll, 1)  # Make scrollable settings take remaining space
     
 
     def _import_media(self):
@@ -1783,7 +1958,7 @@ class ZestSyncPlayer(QMainWindow):
             pass
     
     def _import_files(self): 
-        files, _ = QFileDialog.getOpenFileNames(self, "Import Media", self.last_import_path, "Media Files (*.mp4 *.mkv *.avi)")
+        files, _ = QFileDialog.getOpenFileNames(self, "Import Media", self.last_import_path, "Media Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v *.3gp *.ogv *.ts *.mts *.m2ts *.vob *.asf *.rm *.rmvb)")
         if files: 
             self.last_import_path = os.path.dirname(files[0])
             self._save_last_import_path(self.last_import_path)
@@ -1797,7 +1972,7 @@ class ZestSyncPlayer(QMainWindow):
             self._scan_folder_for_videos(folder)
 
     def _scan_folder_for_videos(self, path):
-        ext = ('.mp4', '.avi', '.mkv'); files = [os.path.join(r, f) for r, _, fs in os.walk(path) for f in fs if f.lower().endswith(ext)]; files.sort(); self._add_media_files(files)
+        ext = ('.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.asf', '.rm', '.rmvb'); files = [os.path.join(r, f) for r, _, fs in os.walk(path) for f in fs if f.lower().endswith(ext)]; files.sort(); self._add_media_files(files)
 
     def _add_media_files(self, file_paths):
         new_files = False
@@ -1805,6 +1980,7 @@ class ZestSyncPlayer(QMainWindow):
             if path not in self.media_queue:
                 self.media_queue.append(path); item = QListWidgetItem(os.path.basename(path))
                 item.setData(Qt.ItemDataRole.UserRole, path); item.setToolTip(path)
+                item.setForeground(QColor("#f0f0f0"))  # Set default text color
                 self.media_list_widget.addItem(item); new_files = True
         if new_files and self.current_media_index == -1 and self.media_list_widget.count() > 0:
             first_item = self.media_list_widget.item(0)
@@ -1873,6 +2049,8 @@ class ZestSyncPlayer(QMainWindow):
             self._handle_volume_wheel(event)
             return True
 
+
+        
         if obj is self.sidebar_handle:
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._toggle_sidebar()
@@ -1896,6 +2074,8 @@ class ZestSyncPlayer(QMainWindow):
     
     def _create_icon_button(self, icon, size=35, icon_size=16):
         btn = QPushButton(); btn.setFixedSize(size, size); btn.setIcon(QIcon(qta.icon(icon, color="#f0f0f0").pixmap(icon_size, icon_size))); btn.setIconSize(QSize(icon_size, icon_size)); btn.setStyleSheet("QPushButton { background-color: transparent; border: none; border-radius: 5px; } QPushButton:hover { background-color: #333333; }"); return btn
+    
+
     
     def _toggle_fullscreen(self):
         self.is_fullscreen = not self.is_fullscreen
@@ -1923,8 +2103,22 @@ class ZestSyncPlayer(QMainWindow):
     def _set_subtitle_font_size(self, size):
         self.subtitle_font_size = size
         self.mpv_player.sub_font_size = size
+        self._update_subtitle_style()
+    
+    def _set_subtitle_color(self, color_name):
+        colors = {"Black": "#000000", "Blue": "#0080ff", "Green": "#00ff00", "Orange": "#ffa500", "Red": "#ff0000", "White": "#ffffff", "Yellow": "#ffff00"}
+        self.subtitle_color = colors.get(color_name, "#ffffff")
+        self.mpv_player.sub_color = self.subtitle_color
+        self._update_subtitle_style()
+    
+    def _toggle_stroke(self, enabled):
+        self.subtitle_stroke = enabled
+        self.mpv_player.sub_border_size = 2 if enabled else 0
+        self.mpv_player.sub_shadow_offset = 1 if enabled else 0
+    
+    def _update_subtitle_style(self):
         self.subtitle_label.setStyleSheet(
-            f"font-size: {size}px; background-color: rgba(0, 0, 0, 0.5); color: white; padding: 5px 10px; border-radius: 5px;"
+            f"font-size: {self.subtitle_font_size}px; background-color: rgba(0, 0, 0, 0.5); color: {self.subtitle_color}; padding: 5px 10px; border-radius: 5px;"
         )
 
     def keyPressEvent(self, event: QKeyEvent):
@@ -2441,7 +2635,7 @@ if __name__ == "__main__":
     # Handle command line arguments for "Open with"
     if len(sys.argv) > 1:
         file_path = sys.argv[1]
-        if os.path.exists(file_path) and file_path.lower().endswith(('.mp4', '.mkv', '.avi')):
+        if os.path.exists(file_path) and file_path.lower().endswith(('.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.asf', '.rm', '.rmvb')):
             window._add_media_files([file_path])
     
     # Show main window after intro finishes

@@ -2,6 +2,30 @@
 
 All notable changes to Zest Sync Player will be documented in this file.
 
+## [2.1.0] - 2025-09-19
+
+### Added
+- 📱 Responsive UI design that automatically scales based on screen size
+- ⚙️ Scrollable settings panel with vertical scrolling for better organization
+- 🎨 Font color selection dropdown with 7 color options (Black, Blue, Green, Orange, Red, White, Yellow)
+- 🖋️ Text stroke toggle switch for improved subtitle readability
+- 🎯 Visual queue indicators - playing media items highlighted with red-orange theme color (#e50409)
+- 🔧 Adaptive sizing for controls and buttons based on screen resolution
+- ✨ Enhanced media list widget styling with custom scrollbars
+- 🎨 White set as default subtitle color for better visibility
+
+### Changed
+- 🖼️ Reverted custom window controls back to default Windows title bar
+- 🎨 Updated media queue item colors to use red-orange theme instead of green
+- 📐 Improved responsive sizing calculations for different screen resolutions
+- 🎛️ Enhanced subtitle customization with color and stroke management
+
+### Technical Improvements
+- Better color management system for subtitle customization
+- Improved UI scaling algorithms for responsive design
+- Enhanced settings panel layout with proper scrolling
+- Optimized media list styling and visual feedback
+
 ## [2.0.0] - 2025-09-15
 
 ### Added

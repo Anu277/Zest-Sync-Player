@@ -6,6 +6,11 @@
 
 **AI-Powered Video Player with Automatic Subtitle Generation & Translation**
 
+## 🚀 Available Versions
+
+- **Zest Sync Player** - CPU-optimized version for all devices
+- **Zest Sync G** - GPU-accelerated version for CUDA-compatible devices (5-10x faster)
+
 ![Zest Sync Player Demo](https://raw.githubusercontent.com/anu277/zest-sync-player/icon.ico)
 
 ## 🎯 Features
@@ -14,10 +19,11 @@
 - **🤖 AI Subtitles**: Automatic speech-to-text using faster-whisper
 - **🌍 Multi-Language**: Translate subtitles to 14 languages (90+ transcription languages)
 - **⚡ Dual Accuracy**: Fast/Slow modes for optimal speed vs quality
-- **📱 UI Style**: Modern dark interface with smooth animations and tutorial system
+- **📱 Responsive UI**: Modern dark interface with adaptive sizing and smooth animations
 - **🎛️ Full Controls**: Speed, volume, fullscreen, timeline scrubbing
-- **📂 Queue Management**: Playlist support with drag-drop and auto-play
-- **⚙️ Smart Settings**: Persistent accuracy modes and font size controls
+- **📂 Queue Management**: Playlist support with drag-drop, auto-play, and visual queue indicators
+- **⚙️ Smart Settings**: Scrollable settings panel with font customization and stroke options
+- **🎨 Subtitle Customization**: Font color selection (7 colors) and text stroke toggle for better readability
 - **🔄 System Info**: Automatic hardware detection and performance logging
 - **🎓 Interactive Tutorial**: First-time user guide with visual walkthrough
 - **📊 Real-time Progress**: Live estimated time display during subtitle generation
@@ -26,12 +32,15 @@
 ## 🚀 Quick Start
 
 ### For Users
-1. **Download** the installer from [GitHub Releases](https://github.com/anu277/zest-sync-player/releases/latest)
-2. **Install** and run the application
-3. **Tutorial**: Interactive guide shows you how to use the player (first-time users)
-4. **First Launch**: Select languages to download (one-time setup)
-5. **Import Video**: Click the **'+'** button to add media files
-6. **Generate Subtitles**: Select language and click "Generate"
+1. **Choose Version**:
+   - **Zest Sync Player**: Standard CPU version (works on all devices)
+   - **Zest Sync G**: GPU version (requires CUDA-compatible NVIDIA GPU)
+2. **Download** the installer from [GitHub Releases](https://github.com/anu277/zest-sync-player/releases/latest)
+3. **Install** and run the application
+4. **Tutorial**: Interactive guide shows you how to use the player (first-time users)
+5. **First Launch**: Select languages to download (one-time setup)
+6. **Import Video**: Click the **'+'** button to add media files
+7. **Generate Subtitles**: Select language and click "Generate"
 
 ### For Developers
 
@@ -106,8 +115,18 @@ python main.py
 
 ## 📋 System Requirements
 
+### Zest Sync Player (CPU Version)
 - **OS**: Windows 10/11 (64-bit)
 - **RAM**: 4GB minimum, 8GB recommended
+- **Storage**: 2GB free space + language models
+- **Internet**: Required for initial model downloads
+
+### Zest Sync G (GPU Version)
+- **OS**: Windows 10/11 (64-bit)
+- **GPU**: CUDA-compatible NVIDIA GPU (GTX 1050+)
+- **CUDA**: CUDA 12.8 ([download from NVIDIA](https://developer.nvidia.com/cuda-12-8-0-download-archive))
+- **VRAM**: 4GB minimum for optimal performance
+- **RAM**: 8GB minimum, 16GB recommended
 - **Storage**: 2GB free space + language models
 - **Internet**: Required for initial model downloads
 
@@ -117,7 +136,7 @@ python main.py
 2. **Speech Recognition**: faster-whisper transcribes with dual accuracy modes
 3. **Translation**: Helsinki-NLP models with automatic model downloading
 4. **Multi-threading**: Background processing prevents UI freezing
-5. **Subtitle Display**: Real-time overlay with customizable fonts and transparency
+5. **Subtitle Display**: Real-time overlay with customizable fonts, colors, stroke effects, and transparency
 
 ## 📁 File Locations
 
@@ -126,6 +145,8 @@ python main.py
 - **Models**: `%LOCALAPPDATA%\Zest Sync\cache\models\hub\`
 - **Settings**: `%USERPROFILE%\.zestsyncsetting.json`
 - **Subtitles**: Saved next to video files as `.srt`
+
+> **Note**: Both CPU and GPU versions use the same installation path. Installing one version will replace the other.
 
 ## 🛠️ Troubleshooting
 
@@ -145,23 +166,41 @@ python main.py
 - **Cause**: Missing dependencies or antivirus blocking
 - **Solution**: Add to antivirus exclusions, run as administrator, check logs
 
-### CUDA Not Detected
-- **Cause**: PyTorch CPU-only version installed
-- **Solution**: Install CUDA-enabled PyTorch manually for GPU acceleration
+### CUDA Not Detected (Zest Sync G)
+- **Cause**: Missing CUDA 12.8 or incompatible GPU
+- **Solution**: Download [CUDA 12.8 from NVIDIA](https://developer.nvidia.com/cuda-12-8-0-download-archive), update NVIDIA drivers, or use CPU version
 
 ### Settings Not Saving
 - **Cause**: File permissions or corrupted settings file
 - **Solution**: Run as administrator, delete `.zestsyncsetting.json` to reset
 
+## 🎨 UI Enhancements
+
+**New Interface Features**:
+- **Responsive Design**: UI elements automatically scale based on screen size
+- **Scrollable Settings**: Settings panel with vertical scrolling for better organization
+- **Visual Queue Indicators**: Playing media items highlighted with red-orange theme color
+- **Font Customization**: 7 color options (Black, Blue, Green, Orange, Red, White, Yellow)
+- **Text Stroke Toggle**: Optional subtitle outline for improved readability
+- **Adaptive Sizing**: Controls and buttons scale appropriately for different screen resolutions
+
 ## 📊 Performance Notes
 
+### Zest Sync Player (CPU Version)
 **Estimated Generation Times** (based on i5-10300H, 4C/8T):
 - **English Fast Mode**: ~1.4 minutes per 10-minute video
 - **English Slow Mode**: ~10 minutes per 25-minute video (higher accuracy)
 - **Translation**: ~1.2-4 minutes depending on target language
 - **RAM Usage**: ~600MB during processing
 
-*Performance varies by CPU speed, cores/threads, and available RAM.*
+### Zest Sync G (GPU Version)
+**Estimated Generation Times** (based on GTX 1650, 4GB VRAM):
+- **English Fast Mode**: ~18 seconds per 2.35-minute video (5-7x faster)
+- **English Slow Mode**: ~100 seconds per 24-minute video (6-8x faster)
+- **Translation**: ~30-90 seconds depending on target language
+- **VRAM Usage**: ~2.3GB peak, 1.6GB persistent
+
+*Performance varies by GPU model, VRAM, CPU speed, and available RAM.*
 
 ## 🔒 Privacy & Data
 
@@ -196,4 +235,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Version 2.0** | Built for Windows 10/11 | Self-contained AI-powered video player with tutorial system and dual accuracy modes
+**Version 2.1** | Built for Windows 10/11 | Available in CPU and GPU-accelerated versions | Self-contained AI-powered video player with responsive UI, enhanced subtitle customization, and dual accuracy modes
