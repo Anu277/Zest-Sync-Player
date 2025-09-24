@@ -217,6 +217,10 @@ python main.py
 - **Discussions**: [GitHub Discussions](https://github.com/anu277/zest-sync-player/discussions)
 - **Uninstall**: Use Windows "Add or Remove Programs" (removes all data and cache)
 
+## 📚 Documentation
+
+For detailed technical documentation, see [DOCUMENTATION.md](DOCUMENTATION.md).
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
